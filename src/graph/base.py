@@ -187,7 +187,8 @@ class Graph(abc.ABC):
         >>>        parent_node, child_node, edge_weight
         """
         config_file_name: str = str(self._config_yaml + '.yaml')
-        config_file_add = os.path.join(Graph._get_project_root_directory(), config_file_name)
+        # config_file_add = os.path.join(Graph._get_project_root_directory(), config_file_name)
+        config_file_add = Graph._get_project_root_directory() + config_file_name
         print(config_file_add)
 
         data_dict = dict(

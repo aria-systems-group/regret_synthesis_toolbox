@@ -824,6 +824,7 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         self._play_hopeful_game: bool = False
         self._safe_adm_str : Dict[str, Union[str, Iterable]] = defaultdict(lambda: set())
         self._hopeful_adm_str: Dict[str, Union[str, Iterable]] = defaultdict(lambda: set())
+        self._hopeless_str: Dict[str, Union[str, Iterable]] = defaultdict(lambda: set())
         self._coop_optimal_sys_str: Dict[str, Union[str, Iterable]] = defaultdict(lambda: set())
         self._env_pending_region: set= set()
         self._sys_pending_region: set = set() 
@@ -882,6 +883,10 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
     @property
     def hopeful_adm_str(self):
         return self._hopeful_adm_str
+    
+    @property
+    def hopeless_str(self):
+        return self._hopeless_str
     
     @property
     def env_pending_region(self):
@@ -1052,11 +1057,30 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         self._safety_game.reachability_solver()
         stop = time.time()
         self._logger.safety_time = stop - start
+        #### TESTING - fump the Sys's safety dictionary and Env;s safety dictionery. 
+        # import yaml
+        # from ..config import ROOT_PATH 
+
+        # def modify_tuple_to_str(data) -> dict:
+        #     return {str(k): str(v) for k, v in data.items()}
+        
+        # file_path = ROOT_PATH + "/sys_safety_game.yaml"
+        # new_dict = modify_tuple_to_str(self._safety_game.sys_str)
+        # with open(file_path, 'w') as file:
+        #     yaml.dump(new_dict, file, default_flow_style=False)
+        
+        # file_path = ROOT_PATH + "/env_safety_game.yaml"
+        # new_dict = modify_tuple_to_str(self._safety_game.env_str)
+        # with open(file_path, 'w') as file:
+        #     yaml.dump(new_dict, file, default_flow_style=False)
+
+
         # compute set of unsafe sys states after playing the safety game
         # all_sys_nodes: set = set()
         # for i in self.game._graph.nodes():
         #     if self.game.get_state_w_attribute(i, 'player') == 'eve':
         #         all_sys_nodes.add(i)
+        self._hopeless_str = self._safety_game.env_str
         all_sys_nodes = {i for i in self.game._graph.nodes() if self.game.get_state_w_attribute(i, 'player') == 'eve'}
         self._safe_states = self._safety_game.sys_str.keys()
         unsafe_states = all_sys_nodes.difference(self._safe_states)
@@ -1234,6 +1258,8 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
                                             value_dict=self._safeadm_game.state_value_dict,
                                             source=init_state,
                                             depth_limit=30)
+            # stitch hopeless and adv stratgey together. Env chooses hopeless str if one exists else it chooses adv str
+            self.env_winning_str = {**self._env_winning_str, **self._hopeless_str}
 
         if self._play_hopeful_game:
             self.compute_hopeful_strategies(plot=plot)
