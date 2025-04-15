@@ -14,7 +14,7 @@ from ..graph import graph_factory
 from .safety_game import SafetyGame
 from .value_iteration import ValueIteration, PermissiveValueIteration, PermissiveCoopValueIteration
 from ...helper import InteractiveGraph
-from ..helper_methods import timer_decorator
+from ..helper_methods import timer_decorator, get_nx_kosaraju_sort
 
 
 
@@ -832,6 +832,7 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         self._safety_game: SafetyGame = None
         self._hopeful_game: PermissiveValueIteration = False
         self._safeadm_game: PermissiveCoopValueIteration = None
+        self._scc_graph: TwoPlayerGraph = None
         self._logger = self.AdmRatLogger()
     
     class AdmRatLogger():
@@ -912,6 +913,81 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
     def safe_states(self):
         return self._safe_states
 
+    @property
+    def scc_graph(self):
+        return self._scc_graph
+    
+
+    def remove_non_reachable_states(self, game, debug: bool = False) -> None:
+        """
+        A helper method that removes all the states that are not reachable from the initial state. This method is
+        called by the edge weighted are reg solver method to trim states and reduce the size of the graph
+
+        :param game:
+        :return:
+        """
+        print("Starting purging nodes")
+        # get the initial state
+        _init_state = game.get_initial_states()[0][0]
+        _org_node_set: set = set(game._graph.nodes())
+
+        stack = deque()
+        path: set = set()
+
+        stack.append(_init_state)
+        while stack:
+            vertex = stack.pop()
+            if vertex in path:
+                continue
+            path.add(vertex)
+            for _neighbour in game._graph.successors(vertex):
+                stack.append(_neighbour)
+
+        _valid_states = path
+
+        _nodes_to_be_purged: set = _org_node_set - _valid_states
+        game._graph.remove_nodes_from(_nodes_to_be_purged)
+        if debug:
+            print("Nodes Purged")
+            import pprint
+            pprint.pp(_nodes_to_be_purged)
+        print(f"Done purging nodes: # Nodes Purged: {len(_nodes_to_be_purged)}")
+
+
+    def construct_scc(self, game: TwoPlayerGraph, plot: bool = False):
+        """
+         A method that comstruct a SCC variant of the game.
+        """
+        # plot the SCC of this safe adm game
+        condensed_graph, scc_order = get_nx_kosaraju_sort(game=game, debug=False)
+
+        self._scc_graph: TwoPlayerGraph = graph_factory.get("TwoPlayerGraph",
+                                                            graph_name="SCC_DAG_NO_UNREACHABLE",
+                                                            config_yaml="config/SCC_DAG_NO_UNREACHABLE",
+                                                            save_flag=True,
+                                                            from_file=False, 
+                                                            plot=False)
+        self.scc_graph._graph = condensed_graph
+
+        # Putting in try excep block as the game is a same adm game and may not have the accepting state in game 
+        try:
+            init_state = condensed_graph.graph['mapping'][game.get_initial_states()[0][0]]
+            self.scc_graph.add_state_attribute(init_state, 'init', True)
+        except KeyError:
+            print("[Warning] No init state in the SCC graph. This is not a problem, just a warning.")
+
+        try:
+            accp_state = condensed_graph.graph['mapping'][game.get_accepting_states()[0]]
+            self.scc_graph.add_state_attribute(accp_state, 'accepting', True)
+        except KeyError:
+            print("[Warning] No accepting state in the SCC graph. This is not a problem, just a warning.")
+
+        # remove the states not reach from the init state
+        self.remove_non_reachable_states(game=self.scc_graph, debug=False)
+
+        
+        if plot:
+            self.scc_graph.plot_graph(alias=False)
 
 
     def get_pending_region(self, print_states: bool = False):
@@ -1064,10 +1140,10 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         # def modify_tuple_to_str(data) -> dict:
         #     return {str(k): str(v) for k, v in data.items()}
         
-        # file_path = ROOT_PATH + "/sys_safety_game.yaml"
-        # new_dict = modify_tuple_to_str(self._safety_game.sys_str)
-        # with open(file_path, 'w') as file:
-        #     yaml.dump(new_dict, file, default_flow_style=False)
+        # # file_path = ROOT_PATH + "/sys_safety_game.yaml"
+        # # new_dict = modify_tuple_to_str(self._safety_game.sys_str)
+        # # with open(file_path, 'w') as file:
+        # #     yaml.dump(new_dict, file, default_flow_style=False)
         
         # file_path = ROOT_PATH + "/env_safety_game.yaml"
         # new_dict = modify_tuple_to_str(self._safety_game.env_str)
@@ -1106,9 +1182,9 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         # remove edges that are neither safe nor reachable admissible 
         sys_edges_to_rm = set()
         for curr_state, succ_state in self._safety_game.sys_str.items():
-            assert safeadm_game.get_state_w_attribute(curr_state, "player") == "eve", "[Error] Trying to remove unsafe edges from Eve's state."
+            assert safeadm_game.get_state_w_attribute(curr_state, "player") == "eve", "[Error] Trying to remove unsafe edges from Adam's state."
             bad_succ: set =  set(self.game._graph.successors(curr_state)).difference(succ_state)
-            assert bad_succ != succ_state, "[Error], removing all successor state(s). This should NOT happen! FIX THIS!!!"
+            assert len(bad_succ.intersection(succ_state)) == 0, "[Error], removing safe state(s). This should NOT happen! FIX THIS!!!"
             for bs in bad_succ:
                 sys_edges_to_rm.add((curr_state, bs))
         safeadm_game._graph.remove_edges_from(sys_edges_to_rm)
@@ -1132,6 +1208,13 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
             _, min_val = min(succ_vals, key=operator.itemgetter(1))
             # self._safe_adm_str[sys_state] = [(state, state_val) for state, state_val in succ_vals if min_val == state_val]
             self._safe_adm_str[sys_state] = [state for state, state_val in succ_vals if min_val == state_val]
+        
+        self.construct_scc(game=safeadm_game, plot=True)
+        
+        ### TMP - dump alll the edges in the game for sanity checking
+        # for (u, v, data) in safeadm_game._graph.edges(data=True):
+        #     print(f"{u} -------{data['actions']}------> {v} \n")
+        # sys.exit(-1)
 
         self._coop_winning_state_values = safe_adm_handle.state_value_dict
         self._safeadm_game = safe_adm_handle

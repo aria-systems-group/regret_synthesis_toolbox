@@ -1,7 +1,11 @@
 import time
 import warnings
+import networkx as nx
 
 from pathlib import Path
+from networkx import DiGraph
+
+from typing import List, Tuple
 
 # A decorator to throw warning when we use deprecated methods/functions/routines
 def deprecated(func):
@@ -28,6 +32,26 @@ def timer_decorator(func):
         print(f"Function {func.__name__} took {end_time - start_time} seconds to run.")
         return result
     return wrapper
+
+
+def get_nx_kosaraju_sort(game, debug: bool = False) -> Tuple[DiGraph, List[int]]:
+    """
+     A helper method tha Returns the condensation of graph G.
+
+     The condensation of G is the graph with each of the strongly connected components
+       contracted into a single node. Set Debug flag to true to print the SCC order
+    """
+    start = time.time()
+    condensed_graph = nx.condensation(game._graph)
+    stop = time.time()
+    print(f"******************** Condensed Graph Computation: {stop - start} seconds ********************")
+    
+    scc_order = list(reversed(list(nx.topological_sort(condensed_graph))))
+    if debug:
+        print(f"SCC order in which the values iteration code shold run: {scc_order}")
+        print(f"{max(scc_order) + 1} - Number of SCCs")
+
+    return condensed_graph, scc_order
 
 
 def is_docker():
