@@ -820,6 +820,7 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         """
         
         super().__init__(game, debug)
+        self._all_sys_nodes = {i for i in self.game._graph.nodes() if self.game.get_state_w_attribute(i, 'player') == 'eve'}
         self._wcoop: dict = defaultdict(lambda: set())
         self._play_hopeful_game: bool = False
         self._safe_adm_str : Dict[str, Union[str, Iterable]] = defaultdict(lambda: set())
@@ -865,9 +866,14 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
             return data 
     
     @property
+    def all_sys_nodes(self):
+        assert len(self._all_sys_nodes) != 0, "[Error] There does not exists any Sys nodes in the game. Fix This!!!."
+        return self._all_sys_nodes
+    
+    @property
     def wcoop(self):
-        assert len(self._wcoop) != 0, "Please run the solver before accessing the WCoop strategies."
-        return self._wcoop
+        assert len(self._wcoop) != 0, "[Error] Please run the solver before accessing the WCoop strategies."
+        return self._wcoop 
 
     @property
     def play_hopeful_game(self):
@@ -954,7 +960,7 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         print(f"Done purging nodes: # Nodes Purged: {len(_nodes_to_be_purged)}")
 
 
-    def construct_scc(self, game: TwoPlayerGraph, plot: bool = False):
+    def construct_scc(self, game: TwoPlayerGraph, plot: bool = False, iter_count: int = 0):
         """
          A method that comstruct a SCC variant of the game.
         """
@@ -962,19 +968,20 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         condensed_graph, scc_order = get_nx_kosaraju_sort(game=game, debug=False)
 
         self._scc_graph: TwoPlayerGraph = graph_factory.get("TwoPlayerGraph",
-                                                            graph_name="SCC_DAG_NO_UNREACHABLE",
-                                                            config_yaml="config/SCC_DAG_NO_UNREACHABLE",
+                                                            graph_name=f"SCC_DAG_NO_UNREACHABLE_{iter_count}",
+                                                            config_yaml=f"config/SCC_DAG_NO_UNREACHABLE_{iter_count}",
                                                             save_flag=True,
                                                             from_file=False, 
                                                             plot=False)
         self.scc_graph._graph = condensed_graph
 
         # Putting in try excep block as the game is a same adm game and may not have the accepting state in game 
-        try:
-            init_state = condensed_graph.graph['mapping'][game.get_initial_states()[0][0]]
-            self.scc_graph.add_state_attribute(init_state, 'init', True)
-        except KeyError:
-            print("[Warning] No init state in the SCC graph. This is not a problem, just a warning.")
+        if len(game.get_initial_states()) > 0:
+            try:
+                init_state = condensed_graph.graph['mapping'][game.get_initial_states()[0][0]]
+                self.scc_graph.add_state_attribute(init_state, 'init', True)
+            except KeyError:
+                print("[Warning] No init state in the SCC graph. This is not a problem, just a warning.")
 
         try:
             accp_state = condensed_graph.graph['mapping'][game.get_accepting_states()[0]]
@@ -983,7 +990,8 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
             print("[Warning] No accepting state in the SCC graph. This is not a problem, just a warning.")
 
         # remove the states not reach from the init state
-        self.remove_non_reachable_states(game=self.scc_graph, debug=False)
+        if len(game.get_initial_states()) > 0:
+            self.remove_non_reachable_states(game=self.scc_graph, debug=False)
 
         
         if plot:
@@ -1122,14 +1130,14 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         return warm_start_coop_handle
     
     @timer_decorator
-    def play_safety_game(self) -> Set:
+    def play_safety_game(self, target_states: set) -> Set:
         """
          Compute the Safe strategies for the Sys player and return the set of safe states
         """
         print("Computing Safety strategy")
         start = time.time()
-        safe_states: set = self.pending_region.union(self.winning_region)
-        self._safety_game = SafetyGame(game=self.game, target_states=safe_states, debug=self.debug, sanity_check=False)
+        # safe_states: set = self.pending_region.union(self.winning_region)
+        self._safety_game = SafetyGame(game=self.game, target_states=target_states, debug=self.debug, sanity_check=False)
         self._safety_game.reachability_solver()
         stop = time.time()
         self._logger.safety_time = stop - start
@@ -1157,9 +1165,8 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         #     if self.game.get_state_w_attribute(i, 'player') == 'eve':
         #         all_sys_nodes.add(i)
         self._hopeless_str = self._safety_game.env_str
-        all_sys_nodes = {i for i in self.game._graph.nodes() if self.game.get_state_w_attribute(i, 'player') == 'eve'}
         self._safe_states = self._safety_game.sys_str.keys()
-        unsafe_states = all_sys_nodes.difference(self._safe_states)
+        unsafe_states = self.all_sys_nodes.difference(self._safe_states)
         print("Done Computing Safety strategy")
 
         return unsafe_states
@@ -1174,47 +1181,67 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
           4. Construct SAdm - safe strategy that choose actions minimum cVal at the nexr state.
           5. If init state in safe game, break else compute hopeful strategies. 
         """
-        # play safety game
-        unsafe_states = self.play_safety_game()
         safeadm_game: TwoPlayerGraph = deepcopy(self.game)
-        safeadm_game._graph.remove_nodes_from(unsafe_states)
+        # play safety game
+        prev_losing_region = self.get_losing_region()
+        # manually need to remove accepting state as in Coop VI code, accepting states a re sink states with self loops and help are not added sys str dict
+        prev_losing_region.difference(set(self.game.get_accepting_states()))
+        target_states = self.pending_region.union(self.winning_region)
+        iter_count = 0
+        while True:
+            unsafe_states = self.play_safety_game(target_states=target_states)
+            safeadm_game._graph.remove_nodes_from(unsafe_states)
+            
+            # remove edges that are neither safe nor reachable admissible 
+            sys_edges_to_rm = set()
+            for curr_state, succ_state in self._safety_game.sys_str.items():
+                assert safeadm_game.get_state_w_attribute(curr_state, "player") == "eve", "[Error] Trying to remove unsafe edges from Adam's state."
+                bad_succ: set =  set(self.game._graph.successors(curr_state)).difference(succ_state)
+                assert len(bad_succ.intersection(succ_state)) == 0, "[Error], removing safe state(s). This should NOT happen! FIX THIS!!!"
+                for bs in bad_succ:
+                    sys_edges_to_rm.add((curr_state, bs))
+            safeadm_game._graph.remove_edges_from(sys_edges_to_rm)
+
+            # after removing some sys states, there might exist Env states that do not transition to any Sys states. Need ot remove those too
+            env_state_to_rm = set()
+            for s in safeadm_game._graph.nodes():
+                if safeadm_game.get_state_w_attribute(s, "player") == "adam" and len(list(safeadm_game._graph.successors(s))) == 0:
+                    env_state_to_rm.add(s)
+            safeadm_game._graph.remove_nodes_from(env_state_to_rm)
+            start = time.time()
+            safe_adm_handle = self.compute_coop_with_warm_start(safe_adm_game=safeadm_game)
+            stop = time.time()
+            print(f"******************** Safe Coop Computation time: {stop - start} ********************")
+            self._logger.safe_coop_time = stop - start
+
+            safe_region = {s for s in safe_adm_handle.state_value_dict.keys() if safe_adm_handle.state_value_dict[s] < math.inf}
+            losing_region = set(self.game._graph.nodes).difference(safe_region)
+
+            if losing_region == prev_losing_region:
+                break
+            # self.construct_scc(game=safeadm_game, plot=False, iter_count=iter_count)
+            prev_losing_region = losing_region
+            target_states = safe_region
+            iter_count += 1
+            print("Done Iteration: ", iter_count)
         
-        # remove edges that are neither safe nor reachable admissible 
-        sys_edges_to_rm = set()
-        for curr_state, succ_state in self._safety_game.sys_str.items():
-            assert safeadm_game.get_state_w_attribute(curr_state, "player") == "eve", "[Error] Trying to remove unsafe edges from Adam's state."
-            bad_succ: set =  set(self.game._graph.successors(curr_state)).difference(succ_state)
-            assert len(bad_succ.intersection(succ_state)) == 0, "[Error], removing safe state(s). This should NOT happen! FIX THIS!!!"
-            for bs in bad_succ:
-                sys_edges_to_rm.add((curr_state, bs))
-        safeadm_game._graph.remove_edges_from(sys_edges_to_rm)
-
-        # after removing some sys states, there might exist Env states that do not transition to any Sys states. Need ot remove those too
-        env_state_to_rm = set()
-        for s in safeadm_game._graph.nodes():
-            if safeadm_game.get_state_w_attribute(s, "player") == "adam" and len(list(safeadm_game._graph.successors(s))) == 0:
-                env_state_to_rm.add(s)
-        safeadm_game._graph.remove_nodes_from(env_state_to_rm)
-        start = time.time()
-        safe_adm_handle = self.compute_coop_with_warm_start(safe_adm_game=safeadm_game)
-        stop = time.time()
-        print(f"******************** Safe Coop Computation time: {stop - start} ********************")
-        self._logger.safe_coop_time = stop - start
-
         # Construct SAdm - safe strategy that choose actions minimum cVal at the nexr state.
         for sys_state, succ_states in safe_adm_handle.sys_str_dict.items():
             assert safeadm_game.get_state_w_attribute(sys_state, "player") == "eve", "[Error] Trying to add SAdm strategy from Eve's state."
             succ_vals = [(succ, safe_adm_handle.state_value_dict.get(succ)) for succ in succ_states]
             _, min_val = min(succ_vals, key=operator.itemgetter(1))
-            # self._safe_adm_str[sys_state] = [(state, state_val) for state, state_val in succ_vals if min_val == state_val]
-            self._safe_adm_str[sys_state] = [state for state, state_val in succ_vals if min_val == state_val]
+            self._safe_adm_str[sys_state] = [(state, state_val) for state, state_val in succ_vals if min_val == state_val]
+            # self._safe_adm_str[sys_state] = [state for state, state_val in succ_vals if min_val == state_val]
         
-        self.construct_scc(game=safeadm_game, plot=True)
-        
-        ### TMP - dump alll the edges in the game for sanity checking
+
+        ### TMP - dump all the edges in the game for sanity checking
         # for (u, v, data) in safeadm_game._graph.edges(data=True):
         #     print(f"{u} -------{data['actions']}------> {v} \n")
+        # for state, strategy in self._safe_adm_str.items():
+        #     for succ_state, succ_value in strategy:
+        #         print(f"{state} -------{self.game._graph[state][succ_state][0].get('actions')}------> {str(succ_state) + ' | ' + str(succ_value)} \n")
         # sys.exit(-1)
+        
 
         self._coop_winning_state_values = safe_adm_handle.state_value_dict
         self._safeadm_game = safe_adm_handle
