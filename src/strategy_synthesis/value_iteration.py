@@ -220,11 +220,11 @@ class ValueIteration:
         self._num_of_nodes = len(list(self.org_graph._graph.nodes))
         self._node_int_map = bidict({state: index for index, state in enumerate(self.org_graph._graph.nodes)})
         self._val_vector = np.full(shape=(self.num_of_nodes, 1), fill_value=math.inf)
-        try:
-            for state, state_val in self.prior_val_vector.items():
+        for state, state_val in self.prior_val_vector.items():
+            try:
                 self._val_vector[self._node_int_map[state]] = state_val
-        except KeyError:
-            pass
+            except KeyError:
+                continue
 
     def _is_same(self, pre_val_vec, curr_val_vec):
         """

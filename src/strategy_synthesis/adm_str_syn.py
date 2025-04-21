@@ -1230,8 +1230,8 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
             assert safeadm_game.get_state_w_attribute(sys_state, "player") == "eve", "[Error] Trying to add SAdm strategy from Eve's state."
             succ_vals = [(succ, safe_adm_handle.state_value_dict.get(succ)) for succ in succ_states]
             _, min_val = min(succ_vals, key=operator.itemgetter(1))
-            self._safe_adm_str[sys_state] = [(state, state_val) for state, state_val in succ_vals if min_val == state_val]
-            # self._safe_adm_str[sys_state] = [state for state, state_val in succ_vals if min_val == state_val]
+            # self._safe_adm_str[sys_state] = [(state, state_val) for state, state_val in succ_vals if min_val == state_val]
+            self._safe_adm_str[sys_state] = [state for state, state_val in succ_vals if min_val == state_val]
         
 
         ### TMP - dump all the edges in the game for sanity checking
@@ -1368,8 +1368,8 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
                                             value_dict=self._safeadm_game.state_value_dict,
                                             source=init_state,
                                             depth_limit=30)
-            # stitch hopeless and adv stratgey together. Env chooses hopeless str if one exists else it chooses adv str
-            self.env_winning_str = {**self._env_winning_str, **self._hopeless_str}
+        # stitch hopeless and adv stratgey together. Env chooses hopeless str if one exists else it chooses adv str
+        self._env_winning_str = {**self._env_winning_str, **self._hopeless_str}
 
         if self._play_hopeful_game:
             self.compute_hopeful_strategies(plot=plot)
