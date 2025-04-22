@@ -1265,10 +1265,12 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         hopeful_game: TwoPlayerGraph = deepcopy(self.game) # if plot else self.game 
         env_edges_to_rm = set()
         # remove hopeless edges - env winning str such that successor is in losing region
-        for state, succ_state in self._safety_game.env_str.items():
-            if state in self.pending_region and succ_state in self.losing_region:
-                assert hopeful_game.get_state_w_attribute(state, "player") == "adam", "[Error] Removing hopeless edge(s) from Sys's state."
-                env_edges_to_rm.add((state, succ_state))
+        for state, succs in self._safety_game.env_str.items():
+            assert isinstance(succs, list), "[Error] Env str is not a list."
+            for succ_state in succs:
+                if state in self.pending_region and succ_state in self.losing_region:
+                    assert hopeful_game.get_state_w_attribute(state, "player") == "adam", "[Error] Removing hopeless edge(s) from Sys's state."
+                    env_edges_to_rm.add((state, succ_state))
                 
         hopeful_game._graph.remove_edges_from(env_edges_to_rm)
         

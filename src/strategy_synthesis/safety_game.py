@@ -111,11 +111,9 @@ class SafetyGame(ReachabilityGame):
                         sys_str[_s] = sys_str[_s].union(set([_successor])) 
         
 
-        for _s in env_target_states:
+        for _s in env_winning_region:
             if self.game._graph.nodes[_s].get("player") == "adam":
-                for _succ_s in self.game._graph.successors(_s):
-                    env_str[_s] = _succ_s
-                    break
+                env_str[_s] = [_succ_s for _succ_s in self.game._graph.successors(_s) if _regions[_succ_s] == "adam"]
         
         self._sys_str = sys_str
         self._env_str = env_str
