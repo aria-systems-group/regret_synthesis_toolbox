@@ -1185,7 +1185,7 @@ class QuantiativeRefinedAdmissible(AbstractBestEffortReachSyn):
         # play safety game
         prev_losing_region = self.get_losing_region()
         # manually need to remove accepting state as in Coop VI code, accepting states a re sink states with self loops and help are not added sys str dict
-        prev_losing_region.difference(set(self.game.get_accepting_states()))
+        prev_losing_region = prev_losing_region.difference(set(self.game.get_accepting_states()))
         target_states = self.pending_region.union(self.winning_region)
         iter_count = 0
         while True:
