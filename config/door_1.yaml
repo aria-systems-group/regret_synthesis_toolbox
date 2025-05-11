@@ -1,0 +1,46 @@
+# TS for d0. State 0j refer to jth state in the DFA for  d0
+# number of states in pdfa state space
+num_states: 3
+
+# unique start state string label of pdfa
+start_state: 'd00'
+
+
+# define a list of node labels, where each label is a string identifier label
+# for a unique node, and the metadata properties for each node
+nodes:
+  'd00':
+    is_accepting: false
+
+  'd01':
+    is_accepting: false
+
+  'd02':
+    is_accepting: false
+
+
+# define the edges of the graph
+edges:
+  'd00':
+    'd00':
+      formulas:
+        - '!ed0 && !rd0'
+
+    'd01':
+      formulas:
+        - 'ed0 && !rd0'
+    
+    'd02':
+      formulas:
+        - 'rd0 && !ed0'
+
+  'd01':
+    'd01':
+      formulas:
+        - '1'
+      
+
+  'd02':
+    'd02':
+      formulas:
+        - '1'

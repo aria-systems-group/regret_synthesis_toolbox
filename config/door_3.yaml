@@ -1,0 +1,46 @@
+# TS for d2. State 1j refer to jth state in the DFA for d2
+# number of states in pdfa state space
+num_states: 3
+
+# unique start state string label of pdfa
+start_state: 'd20'
+
+
+# define a list of node labels, where each label is a string identifier label
+# for a unique node, and the metadata properties for each node
+nodes:
+  'd20':
+    is_accepting: false
+
+  'd21':
+    is_accepting: false
+
+  'd22':
+    is_accepting: false
+
+
+# define the edges of the graph
+edges:
+  'd20':
+    'd20':
+      formulas:
+        - '!ed2 && !rd2'
+
+    'd21':
+      formulas:
+        - 'ed2 && !rd2'
+    
+    'd22':
+      formulas:
+        - 'rd2 && !ed2'
+
+  'd21':
+    'd21':
+      formulas:
+        - '1'
+      
+
+  'd22':
+    'd22':
+      formulas:
+        - '1'
